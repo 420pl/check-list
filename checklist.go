@@ -7,6 +7,11 @@ import (
 	"strings"
 
 	"github.com/PuerkitoBio/goquery"
+	"net/http"
+	"image"
+	_ "image/jpeg"
+	_ "image/png"
+	"strconv"
 )
 
 const (
@@ -34,6 +39,7 @@ func CheckFile(loadPath, savePath string) (report []string, err error) {
 	report = make([]string, 0, 5)
 	fixSrcAttribute(embed, &report)
 	fixWidthAttribute(embed, &report)
+	fixHeightAttribute(embed, &report)
 
 	writeDocumentToFile(savePath, doc)
 	return report, nil
@@ -146,4 +152,47 @@ func fixWidthAttribute(embedNode *goquery.Selection, report *[]string) error {
 		embedNode.SetAttr("width", embedWidth)
 	}
 	return nil
+}
+
+func fixHeightAttribute(embedNode *goquery.Selection, report *[]string) error {
+	srcAttr, _ := embedNode.Attr("src")
+	srcPropPairs := strings.Split(srcAttr, "&")
+	var imgHeight float64
+	var tracklistHeight int
+	var err error
+	for _, prop := range srcPropPairs {
+		if strings.HasPrefix(prop, "withart") {
+			artPath := strings.Split(prop, propPairSeparator)[1]
+			imgHeight, err = getCoverHeight(artPath)
+			if err != nil {
+				return err
+			}
+		} else if strings.HasPrefix(prop, "height") {
+			tracklistHeight, err = strconv.Atoi(strings.Split(prop, propPairSeparator)[1])
+			if err != nil {
+				return err
+			}
+		}
+	}
+
+	embedNode.SetAttr("height", strconv.FormatFloat(imgHeight + float64(tracklistHeight + 10), 'f', -1, 64))
+	*report = append(*report, "Inappropriate height value")
+	return nil
+}
+
+func getCoverHeight(url string) (float64, error) {
+	img, err := http.Get(url)
+	if err != nil {
+		return 0, fmt.Errorf("Unable to download cover art: %s", err)
+	}
+	defer img.Body.Close()
+
+	imgConfig, _, err := image.DecodeConfig(img.Body)
+	if err != nil {
+		return 0, err
+	}
+
+	floatWidth := float64(imgConfig.Width)
+	floatHeight := float64(imgConfig.Height)
+	return 480 * floatHeight / floatWidth, nil
 }
